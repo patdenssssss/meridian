@@ -2,6 +2,8 @@
 
 **Autonomous Meteora DLMM liquidity management agent for Solana, powered by LLMs.**
 
+**Links:** [Website](https://agentmeridian.xyz) | [Telegram](https://t.me/agentmeridian) | [X](https://x.com/meridian_agent)
+
 Meridian runs continuous screening and management cycles, deploying capital into high-quality Meteora DLMM pools and closing positions based on live PnL, yield, and range data. It learns from every position it closes.
 
 ---
@@ -25,6 +27,12 @@ Meridian runs a **ReAct agent loop** — each cycle the LLM reasons over live da
 |---|---|---|
 | **Screening Agent** | Every 30 min | Pool screening — finds and deploys into the best candidate |
 | **Management Agent** | Every 10 min | Position management — evaluates each open position and acts |
+
+### Agent harness
+
+Meridian's agent harness is the runtime wrapper around every autonomous cycle. It gives both **main** and **experimental** agents the same control loop: load live state, inject relevant memory, expose only role-appropriate tools, execute tool calls, and return a readable cycle report.
+
+The harness also keeps a structured decision log in `decision-log.json` for deployments, closes, skips, and no-deploy outcomes. Each entry records the actor, pool or position, summary, reason, key risks, metrics, and rejected alternatives. Recent decisions are injected back into the system prompt and are available through `get_recent_decisions`, so the agent can answer "why did you deploy?", "why did you close?", or "why did you skip?" without guessing after the fact.
 
 **Data sources:**
 - `@meteora-ag/dlmm` SDK — on-chain position data, active bin, deploy/close transactions
@@ -81,6 +89,16 @@ DRY_RUN=true                            # set false for live trading
 ```
 
 > Never put your private key or API keys in `user-config.json` — use `.env` only. Both files are gitignored.
+
+Optional encrypted `.env` flow:
+
+```bash
+cp .env .env.raw
+printf "replace-with-a-long-local-key\n" > .envrypt
+npm run env:encrypt
+```
+
+Meridian loads envrypt-style encrypted values automatically. Keep `.env.raw` and `.envrypt` local; both are gitignored.
 
 Copy config and edit as needed:
 
@@ -423,7 +441,6 @@ All fields are optional — defaults shown. Edit `user-config.json`.
 | `screeningModel` | `openai/gpt-oss-20b:free` | LLM for screening cycles |
 | `generalModel` | `openai/gpt-oss-20b:free` | LLM for REPL / chat |
 
-<<<<<<< HEAD
 > Override model at runtime: `node cli.js config set screeningModel anthropic/claude-opus-4-5`
 
 ---
@@ -482,34 +499,45 @@ This analyzes closed position performance (win rate, avg PnL, fee yields) and au
 
 ---
 
-## Hive Mind (optional)
+## HiveMind
 
-Opt-in collective intelligence — share lessons and pool outcomes, receive crowd wisdom from other Meridian agents.
+HiveMind sync uses Agent Meridian at `https://api.agentmeridian.xyz` by default with the built-in public key. Agents can register, pull shared lessons/presets, and push learning events without a separate registration flow.
 
-**What you get:** Pool consensus ("8 agents deployed here, 72% win rate"), strategy rankings, threshold medians.
+**What you get:**
+- Shared lessons from other Meridian agents
+- Strategy presets and crowd performance context
+- Role-aware lessons injected into future screener/manager prompts when `hiveMindPullMode` is `auto`
 
-**What you share:** Lessons, deploy outcomes, screening thresholds. No wallet addresses, private keys, or balances are ever sent.
+**What you share:**
+- Lessons from `lessons.json`
+- Closed-position performance events: pool, pool name, base mint, strategy, close reason, PnL, fees, and hold time
+- Agent heartbeat metadata: agent ID, version, timestamp, and basic capability flags
+- **Private keys and wallet balances are never sent**
+
+HiveMind failures are non-blocking. If Agent Meridian is unavailable, the agent logs a warning and keeps running.
 
 ### Setup
 
-```bash
-node -e "import('./hive-mind.js').then(m => m.register('https://meridian-hive-api-production.up.railway.app', 'YOUR_TOKEN'))"
-```
+No manual HiveMind registration command is required for the shared Agent Meridian setup. `agentId` is generated automatically on startup if it is missing.
 
-Get `YOUR_TOKEN` from the private Telegram discussion. This saves your credentials to `user-config.json` automatically.
+To use a private HiveMind API key, check the Telegram announcement channel and set it as `hiveMindApiKey`.
 
-### Disable
+Relevant config fields:
 
 ```json
 {
+  "agentId": "",
   "hiveMindUrl": "",
-  "hiveMindApiKey": ""
+  "hiveMindApiKey": "",
+  "hiveMindPullMode": "auto"
 }
 ```
 
-### Self-hosting
+Blank `hiveMindUrl` and `hiveMindApiKey` values intentionally fall back to the Agent Meridian defaults. Set `hiveMindPullMode` to `manual` if you do not want shared lessons and presets pulled automatically.
 
-See [meridian-hive](https://github.com/fciaf420/meridian-hive) for the server source.
+### Disable
+
+There is currently no empty-string disable path for HiveMind; blank values fall back to the built-in Agent Meridian defaults. A true off switch should be implemented as an explicit config flag before documenting HiveMind as disabled by clearing fields.
 
 ---
 
@@ -533,11 +561,12 @@ agent.js            ReAct loop: LLM → tool call → repeat
 config.js           Runtime config from user-config.json + .env
 prompt.js           System prompt builder (SCREENER / MANAGER / GENERAL roles)
 state.js            Position registry (state.json)
+decision-log.js     Structured decision log for deploy, close, skip, and no-deploy rationale
 lessons.js          Learning engine: records performance, derives lessons, evolves thresholds
 pool-memory.js      Per-pool deploy history + snapshots
 strategy-library.js Saved LP strategies
 telegram.js         Telegram bot: polling + notifications
-hive-mind.js        Optional collective intelligence server sync
+hivemind.js         Agent Meridian HiveMind sync
 smart-wallets.js    KOL/alpha wallet tracker
 token-blacklist.js  Permanent token blacklist
 cli.js              Direct CLI — every tool as a subcommand with JSON output
